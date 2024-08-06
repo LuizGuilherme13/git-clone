@@ -1,6 +1,8 @@
 package cmd
 
 import (
+	"bytes"
+	"compress/gzip"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -34,11 +36,34 @@ func add(cmd *cobra.Command, args []string) {
 		fileName := filepath.Base(file) + ".gz"
 		destPath := filepath.Join(dest, ".got/objects", fileName)
 
-		err = os.WriteFile(destPath, content, 0644)
+		compactContent, err := compressContent(content)
+		if err != nil {
+			fmt.Printf("Erro ao comprimir %s: %v", file, err)
+			return
+		}
+
+		err = os.WriteFile(destPath, compactContent, 0644)
 		if err != nil {
 			fmt.Printf("Erro ao salvar %s: %v\n", file, err)
 			return
 		}
 	}
 
+}
+
+func compressContent(content []byte) ([]byte, error) {
+	buf := bytes.Buffer{}
+
+	writer := gzip.NewWriter(&buf)
+
+	_, err := writer.Write(content)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := writer.Close(); err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
 }
