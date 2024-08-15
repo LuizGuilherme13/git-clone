@@ -25,128 +25,139 @@ var addCmd = &cobra.Command{
 }
 
 func add(cmd *cobra.Command, args []string) {
+	pathToIndex := filepath.Join(AbsDir, ".backup/objects", "index.json")
 
-	path := filepath.Join(AbsDir, ".backup/objects", "index.json")
-
-	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-		file, err := os.Create(path)
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer file.Close()
-
-		_, err = file.WriteString("{}")
-		if err != nil {
-			fmt.Println("Erro ao escrever no arquivo:", err)
-			return
+	if _, err := os.Stat(pathToIndex); errors.Is(err, os.ErrNotExist) {
+		if err := createIndexFile(pathToIndex); err != nil {
+			log.Fatalln(err)
 		}
 	}
 
+	index := Index{}
+
+	if err := index.Unmarshal(pathToIndex); err != nil {
+		log.Fatalln(err)
+	}
+
 	for _, file := range args {
-
-		// Lê o arquivo passado por parâmetro
-		content, err := os.ReadFile(file)
-		if err != nil {
-			fmt.Printf("Erro ao ler %s: %v\n", file, err)
-			return
+		object := Object{
+			Path: file,
+			Id:   uuid.New().String() + "_" + filepath.Base(file) + ".gz",
 		}
 
-		fileName := uuid.New().String() + "_" + filepath.Base(file) + ".gz"
-		destPath := filepath.Join(AbsDir, ".backup/objects", fileName)
-
-		// Compactando
-		compactContent, err := compressContent(content)
-		if err != nil {
-			fmt.Printf("Erro ao comprimir %s: %v", file, err)
-			return
+		if err := object.compress(); err != nil {
+			log.Fatalln(err)
 		}
 
-		// Copiando o arquivo para o destino
-		err = os.WriteFile(destPath, compactContent, 0644)
-		if err != nil {
-			fmt.Printf("Erro ao salvar %s: %v\n", file, err)
-			return
+		if err := object.staging(); err != nil {
+			log.Fatalln(err)
 		}
 
-		index := Index{}
-
-		// Abrir arquivo
-		jsonFile, err := os.Open(path)
-		if err != nil {
-			fmt.Printf("Erro ao abrir .json: %v\n", err)
-			return
-		}
-		defer jsonFile.Close()
-
-		// Ler arquivo
-		bytes, err := io.ReadAll(jsonFile)
-		if err != nil {
-			fmt.Printf("Erro ao ler .json: %v\n", err)
-			return
-		}
-
-		// Deserializar
-		err = json.Unmarshal(bytes, &index)
-		if err != nil {
-			fmt.Println("Erro ao desserializar JSON:", err)
-			return
-		}
-
-		match := false
+		found := false
 		for i := range index.Objects {
 			obj := &index.Objects[i]
 
-			if obj.Path == file {
-				obj.Id = fileName
-				match = true
+			if obj.Path == object.Path {
+				found = true
+				obj.Id = object.Id
 				break
 			}
 		}
 
-		if !match {
-			index.Objects = append(index.Objects, Object{
-				Path: file,
-				Id:   fileName,
-			})
-		}
-
-		updatedBytes, err := json.MarshalIndent(index, "", "  ")
-		if err != nil {
-			fmt.Println("Erro ao serializar JSON:", err)
-			return
-		}
-
-		err = os.WriteFile(path, updatedBytes, 0644)
-		if err != nil {
-			fmt.Println("Erro ao gravar o arquivo:", err)
-			return
+		if !found {
+			index.Objects = append(index.Objects, object)
 		}
 	}
 
+	data, err := json.MarshalIndent(index, "", "  ")
+	if err != nil {
+		fmt.Println("Erro ao serializar JSON:", err)
+		return
+	}
+
+	err = os.WriteFile(pathToIndex, data, 0644)
+	if err != nil {
+		fmt.Println("Erro ao gravar o arquivo:", err)
+		return
+	}
 }
 
-func compressContent(content []byte) ([]byte, error) {
-	buf := bytes.Buffer{}
-
-	writer := gzip.NewWriter(&buf)
-
-	_, err := writer.Write(content)
+func createIndexFile(pathToIndex string) error {
+	file, err := os.Create(pathToIndex)
 	if err != nil {
-		return nil, err
+		return fmt.Errorf("erro ao criar index.json: %w", err)
+	}
+	defer file.Close()
+
+	_, err = file.WriteString("{}")
+	if err != nil {
+		return fmt.Errorf("erro ao escrever no arquivo: %w", err)
 	}
 
-	if err := writer.Close(); err != nil {
-		return nil, err
-	}
-
-	return buf.Bytes(), nil
+	return nil
 }
 
 type Object struct {
-	Path string `json:"path"`
 	Id   string `json:"id"`
+	Path string `json:"path"`
+	Data []byte `json:"-"`
+}
+
+func (obj *Object) compress() error {
+	content, err := os.ReadFile(obj.Path)
+	if err != nil {
+		return fmt.Errorf("erro ao ler %s: %v", obj.Path, err)
+	}
+
+	buf := bytes.Buffer{}
+	writer := gzip.NewWriter(&buf)
+
+	_, err = writer.Write(content)
+	if err != nil {
+		return err
+	}
+
+	if err := writer.Close(); err != nil {
+		return err
+	}
+
+	obj.Data = buf.Bytes()
+
+	return nil
+}
+
+func (obj *Object) staging() error {
+	dest := filepath.Join(AbsDir, ".backup/objects", obj.Id)
+
+	err := os.WriteFile(dest, obj.Data, 0644)
+	if err != nil {
+		return fmt.Errorf("erro ao salvar %s: %v", obj.Path, err)
+
+	}
+
+	return nil
 }
 
 type Index struct {
 	Objects []Object `json:"objects"`
+}
+
+func (i *Index) Unmarshal(pathToIndex string) error {
+	file, err := os.Open(pathToIndex)
+	if err != nil {
+		return fmt.Errorf("erro ao abrir .json: %v", err)
+	}
+	defer file.Close()
+
+	data, err := io.ReadAll(file)
+	if err != nil {
+		return fmt.Errorf("erro ao ler .json: %v", err)
+	}
+
+	err = json.Unmarshal(data, i)
+	if err != nil {
+		return fmt.Errorf("erro ao desserializar .json: %w", err)
+	}
+
+	return nil
 }
