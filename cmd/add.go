@@ -3,6 +3,7 @@ package cmd
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/sha1"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/google/uuid"
 	"github.com/spf13/cobra"
 )
 
@@ -25,31 +25,24 @@ var addCmd = &cobra.Command{
 }
 
 func add(cmd *cobra.Command, args []string) {
-	pathToIndex := filepath.Join(AbsDir, ".backup/objects", "index.json")
+	pathToIndex := filepath.Join(AbsDir, ".backup", "index.json")
 
+	index := Index{}
 	if _, err := os.Stat(pathToIndex); errors.Is(err, os.ErrNotExist) {
-		if err := createIndexFile(pathToIndex); err != nil {
+		if err := index.New(pathToIndex); err != nil {
 			log.Fatalln(err)
 		}
 	}
-
-	index := Index{}
 
 	if err := index.Unmarshal(pathToIndex); err != nil {
 		log.Fatalln(err)
 	}
 
+Next:
 	for _, file := range args {
-		object := Object{
-			Path: file,
-			Id:   uuid.New().String() + "_" + filepath.Base(file) + ".gz",
-		}
 
+		object := Object{Path: file}
 		if err := object.compress(); err != nil {
-			log.Fatalln(err)
-		}
-
-		if err := object.staging(); err != nil {
 			log.Fatalln(err)
 		}
 
@@ -59,42 +52,32 @@ func add(cmd *cobra.Command, args []string) {
 
 			if obj.Path == object.Path {
 				found = true
-				obj.Id = object.Id
-				break
+
+				if obj.Id != object.Id {
+					obj.Id = object.Id
+					obj.Data = object.Data
+
+					if err := object.staging(); err != nil {
+						log.Fatalln(err)
+					}
+				}
+
+				continue Next
 			}
 		}
 
 		if !found {
+			if err := object.staging(); err != nil {
+				log.Fatalln(err)
+			}
+
 			index.Objects = append(index.Objects, object)
 		}
 	}
 
-	data, err := json.MarshalIndent(index, "", "  ")
-	if err != nil {
-		fmt.Println("Erro ao serializar JSON:", err)
-		return
+	if err := index.Marshal(pathToIndex); err != nil {
+		log.Fatalln(err)
 	}
-
-	err = os.WriteFile(pathToIndex, data, 0644)
-	if err != nil {
-		fmt.Println("Erro ao gravar o arquivo:", err)
-		return
-	}
-}
-
-func createIndexFile(pathToIndex string) error {
-	file, err := os.Create(pathToIndex)
-	if err != nil {
-		return fmt.Errorf("erro ao criar index.json: %w", err)
-	}
-	defer file.Close()
-
-	_, err = file.WriteString("{}")
-	if err != nil {
-		return fmt.Errorf("erro ao escrever no arquivo: %w", err)
-	}
-
-	return nil
 }
 
 type Object struct {
@@ -121,6 +104,7 @@ func (obj *Object) compress() error {
 		return err
 	}
 
+	obj.Id = fmt.Sprintf("%x", sha1.Sum(content))
 	obj.Data = buf.Bytes()
 
 	return nil
@@ -142,6 +126,21 @@ type Index struct {
 	Objects []Object `json:"objects"`
 }
 
+func (i *Index) New(pathToIndex string) error {
+	file, err := os.Create(pathToIndex)
+	if err != nil {
+		return fmt.Errorf("erro ao criar index.json: %w", err)
+	}
+	defer file.Close()
+
+	_, err = file.WriteString("{}")
+	if err != nil {
+		return fmt.Errorf("erro ao escrever no arquivo: %w", err)
+	}
+
+	return nil
+}
+
 func (i *Index) Unmarshal(pathToIndex string) error {
 	file, err := os.Open(pathToIndex)
 	if err != nil {
@@ -157,6 +156,20 @@ func (i *Index) Unmarshal(pathToIndex string) error {
 	err = json.Unmarshal(data, i)
 	if err != nil {
 		return fmt.Errorf("erro ao desserializar .json: %w", err)
+	}
+
+	return nil
+}
+
+func (i *Index) Marshal(pathToIndex string) error {
+	data, err := json.MarshalIndent(*i, "", "  ")
+	if err != nil {
+		return fmt.Errorf("erro ao serializar JSON: %w", err)
+	}
+
+	err = os.WriteFile(pathToIndex, data, 0644)
+	if err != nil {
+		return fmt.Errorf("erro ao gravar o arquivo: %w", err)
 	}
 
 	return nil
