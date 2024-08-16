@@ -25,16 +25,17 @@ var addCmd = &cobra.Command{
 }
 
 func add(cmd *cobra.Command, args []string) {
-	pathToIndex := filepath.Join(AbsDir, ".backup", "index.json")
+	index := Index{
+		Path: filepath.Join(AbsDir, ".backup", "index.json"),
+	}
 
-	index := Index{}
-	if _, err := os.Stat(pathToIndex); errors.Is(err, os.ErrNotExist) {
-		if err := index.New(pathToIndex); err != nil {
+	if _, err := os.Stat(index.Path); errors.Is(err, os.ErrNotExist) {
+		if err := index.New(index.Path); err != nil {
 			log.Fatalln(err)
 		}
 	}
 
-	if err := index.Unmarshal(pathToIndex); err != nil {
+	if err := index.Unmarshal(index.Path); err != nil {
 		log.Fatalln(err)
 	}
 
@@ -75,7 +76,7 @@ Next:
 		}
 	}
 
-	if err := index.Marshal(pathToIndex); err != nil {
+	if err := index.Marshal(index.Path); err != nil {
 		log.Fatalln(err)
 	}
 }
@@ -123,11 +124,12 @@ func (obj *Object) staging() error {
 }
 
 type Index struct {
+	Path    string   `json:"-"`
 	Objects []Object `json:"objects"`
 }
 
 func (i *Index) New(pathToIndex string) error {
-	file, err := os.Create(pathToIndex)
+	file, err := os.Create(i.Path)
 	if err != nil {
 		return fmt.Errorf("erro ao criar index.json: %w", err)
 	}
