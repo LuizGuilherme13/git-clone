@@ -22,7 +22,7 @@ var commitCmd = &cobra.Command{
 }
 
 func commit(cmd *cobra.Command, args []string) {
-	commit := Commit{}
+	commit := Commit{Message: args[0]}
 	index := Index{Path: filepath.Join(AbsDir, ".backup", "index.json")}
 
 	err := index.Unmarshal(index.Path)
@@ -68,7 +68,8 @@ func commit(cmd *cobra.Command, args []string) {
 }
 
 type Commit struct {
-	Hash   string   `json:"hash"`
-	Index  []Object `json:"index"`
-	Parent string   `json:"parent"`
+	Hash    string   `json:"hash"`
+	Message string   `json:"message"`
+	Index   []Object `json:"index"`
+	Parent  string   `json:"parent"`
 }
