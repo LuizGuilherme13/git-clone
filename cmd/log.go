@@ -42,8 +42,8 @@ func logFunc(cmd *cobra.Command, args []string) {
 
 func getParent(path string, commit Commit) {
 
-	fmt.Printf("commit %s\n", commit.Hash)
-	fmt.Println()
+	fmt.Printf("%scommit %s\n", Yellow, commit.Hash)
+	fmt.Println(Reset)
 	fmt.Printf("   %s\n", commit.Message)
 
 	if commit.Parent == "" {

@@ -9,6 +9,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
+var (
+	Reset  = "\033[0m"
+	Red    = "\033[31m"
+	Yellow = "\033[33m"
+	Green  = "\033[32m"
+)
+
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "backup",
