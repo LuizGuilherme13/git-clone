@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"log"
+	"os"
 	"path/filepath"
 	"slices"
 
@@ -35,6 +37,24 @@ func status(cmd *cobra.Command, args []string) {
 	objects := []string{}
 	untracked := []string{}
 	modified := []string{}
+	toBeCommited := []string{}
+
+	//* Buscando o último commit
+	headCommit, err := os.ReadFile(filepath.Join(AbsDir, ".backup", "HEAD.txt"))
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(pathToCommits, string(headCommit)))
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	lastCommit := Commit{}
+	if err := json.Unmarshal(content, &lastCommit); err != nil {
+		log.Fatalln(err)
+	}
+	//*
 
 	for _, obj := range index.Objects {
 		objects = append(objects, obj.Path)
@@ -63,19 +83,49 @@ func status(cmd *cobra.Command, args []string) {
 		}
 	}
 
+Main:
+	for _, obj := range index.Objects {
+		neverCommited := true
+
+		for i := range lastCommit.Index {
+			if obj.Path == lastCommit.Index[i].Path {
+				neverCommited = false
+
+				if obj.Id != lastCommit.Index[i].Id {
+					toBeCommited = append(toBeCommited, obj.Path)
+				}
+
+				continue Main
+			}
+		}
+
+		if neverCommited {
+			toBeCommited = append(toBeCommited, obj.Path)
+		}
+	}
+
+	if len(toBeCommited) > 0 {
+		fmt.Println("Changes to be commited:")
+		for i := range toBeCommited {
+			fmt.Printf("\t%smodified:   %s\n", Green, toBeCommited[i])
+		}
+		fmt.Println(Reset)
+	}
+
 	if len(modified) > 0 {
 		fmt.Println("Changes not staged:")
 		for i := range modified {
-			fmt.Printf("\t%s\n", modified[i])
+			fmt.Printf("\t%smodified:   %s\n", Yellow, modified[i])
 		}
-		fmt.Println()
+		fmt.Println(Reset)
 	}
 
 	if len(untracked) > 0 {
 		fmt.Println("Untracked files:")
 		for i := range untracked {
-			fmt.Printf("\t%s\n", untracked[i])
+			fmt.Printf("\t%s%s\n", Red, untracked[i])
 		}
+		fmt.Println(Reset)
 	}
 
 }
