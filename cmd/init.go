@@ -2,25 +2,13 @@ package cmd
 
 import (
 	"fmt"
-	"log"
 	"os"
+	"path/filepath"
 
+	"github.com/LuizGuilherme13/git-clone/common"
+	"github.com/LuizGuilherme13/git-clone/models"
 	"github.com/spf13/cobra"
 )
-
-var AbsDir string
-
-func init() {
-	wd, err := os.Getwd()
-	if err != nil {
-		fmt.Println("Erro ao obter destino do arquivo")
-		return
-	}
-
-	AbsDir = wd
-
-	rootCmd.AddCommand(initRepoCmd)
-}
 
 var initRepoCmd = &cobra.Command{
 	Use: "init",
@@ -28,9 +16,28 @@ var initRepoCmd = &cobra.Command{
 }
 
 func initRepo(cmd *cobra.Command, args []string) {
-	err := os.MkdirAll(".backup/objects", os.ModePerm)
-	if err != nil {
-		log.Fatal(err)
+	if err := os.MkdirAll(".backup/objects", os.ModePerm); err != nil {
+		fmt.Println(models.CheckError(err.Error()))
+		return
 	}
 
+	_, err := models.OpenIndexFile()
+	if err != nil {
+		fmt.Println(err)
+
+		os.RemoveAll(filepath.Join(common.RootPath, ".backup"))
+
+		return
+	}
+
+	_, err = models.OpenHeadFile()
+	if err != nil {
+		fmt.Println(err)
+
+		os.RemoveAll(filepath.Join(common.RootPath, ".backup"))
+
+		return
+	}
+
+	models.PrintOk(fmt.Sprintf("Repositório iniciado em: %s", common.RootPath))
 }

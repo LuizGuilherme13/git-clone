@@ -1,23 +1,11 @@
 package cmd
 
 import (
-	"bytes"
-	"compress/gzip"
-	"crypto/sha1"
-	"encoding/json"
-	"errors"
 	"fmt"
-	"io"
-	"log"
-	"os"
-	"path/filepath"
 
+	"github.com/LuizGuilherme13/git-clone/models"
 	"github.com/spf13/cobra"
 )
-
-func init() {
-	rootCmd.AddCommand(addCmd)
-}
 
 var addCmd = &cobra.Command{
 	Use: "add",
@@ -25,41 +13,38 @@ var addCmd = &cobra.Command{
 }
 
 func add(cmd *cobra.Command, args []string) {
-	index := Index{
-		Path: filepath.Join(AbsDir, ".backup", "index.json"),
+	index, err := models.OpenIndexFile()
+	if err != nil {
+		fmt.Println(err)
+		return
 	}
 
-	if _, err := os.Stat(index.Path); errors.Is(err, os.ErrNotExist) {
-		if err := index.New(index.Path); err != nil {
-			log.Fatalln(err)
-		}
-	}
-
-	if err := index.Unmarshal(index.Path); err != nil {
-		log.Fatalln(err)
+	if err := index.Read(); err != nil {
+		fmt.Println(err)
+		return
 	}
 
 Next:
-	for _, file := range args {
-
-		object := Object{Path: file}
-		if err := object.compress(); err != nil {
-			log.Fatalln(err)
+	for _, path := range args {
+		blob, err := models.CreateBlob(path)
+		if err != nil {
+			fmt.Println(err)
+			return
 		}
 
 		found := false
 		for i := range index.Objects {
 			obj := &index.Objects[i]
 
-			if obj.Path == object.Path {
+			if obj.Path == blob.Path {
 				found = true
 
-				if obj.Id != object.Id {
-					obj.Id = object.Id
-					obj.Data = object.Data
+				if obj.Hash != blob.Hash {
+					obj.Hash = blob.Hash
 
-					if err := object.staging(); err != nil {
-						log.Fatalln(err)
+					if err := blob.Stage(); err != nil {
+						fmt.Println(err)
+						return
 					}
 				}
 
@@ -68,111 +53,17 @@ Next:
 		}
 
 		if !found {
-			if err := object.staging(); err != nil {
-				log.Fatalln(err)
+			if err := blob.Stage(); err != nil {
+				fmt.Println(err)
+				return
 			}
 
-			index.Objects = append(index.Objects, object)
+			index.Objects = append(index.Objects, *blob)
 		}
 	}
 
-	if err := index.Marshal(index.Path); err != nil {
-		log.Fatalln(err)
+	if err := index.Write(); err != nil {
+		fmt.Println(err)
+		return
 	}
-}
-
-type Object struct {
-	Id   string `json:"id"`
-	Path string `json:"path"`
-	Data []byte `json:"-"`
-}
-
-func (obj *Object) compress() error {
-	content, err := os.ReadFile(obj.Path)
-	if err != nil {
-		return fmt.Errorf("erro ao ler %s: %v", obj.Path, err)
-	}
-
-	buf := bytes.Buffer{}
-	writer := gzip.NewWriter(&buf)
-
-	_, err = writer.Write(content)
-	if err != nil {
-		return err
-	}
-
-	if err := writer.Close(); err != nil {
-		return err
-	}
-
-	obj.Id = fmt.Sprintf("%x", sha1.Sum(content))
-	obj.Data = buf.Bytes()
-
-	return nil
-}
-
-func (obj *Object) staging() error {
-	dest := filepath.Join(AbsDir, ".backup/objects", obj.Id)
-
-	err := os.WriteFile(dest, obj.Data, 0644)
-	if err != nil {
-		return fmt.Errorf("erro ao salvar %s: %v", obj.Path, err)
-
-	}
-
-	return nil
-}
-
-type Index struct {
-	Path    string   `json:"-"`
-	Objects []Object `json:"objects"`
-}
-
-func (i *Index) New(pathToIndex string) error {
-	file, err := os.Create(i.Path)
-	if err != nil {
-		return fmt.Errorf("erro ao criar index.json: %w", err)
-	}
-	defer file.Close()
-
-	_, err = file.WriteString("{}")
-	if err != nil {
-		return fmt.Errorf("erro ao escrever no arquivo: %w", err)
-	}
-
-	return nil
-}
-
-func (i *Index) Unmarshal(pathToIndex string) error {
-	file, err := os.Open(pathToIndex)
-	if err != nil {
-		return fmt.Errorf("erro ao abrir .json: %v", err)
-	}
-	defer file.Close()
-
-	data, err := io.ReadAll(file)
-	if err != nil {
-		return fmt.Errorf("erro ao ler .json: %v", err)
-	}
-
-	err = json.Unmarshal(data, i)
-	if err != nil {
-		return fmt.Errorf("erro ao desserializar .json: %w", err)
-	}
-
-	return nil
-}
-
-func (i *Index) Marshal(pathToIndex string) error {
-	data, err := json.MarshalIndent(*i, "", "  ")
-	if err != nil {
-		return fmt.Errorf("erro ao serializar JSON: %w", err)
-	}
-
-	err = os.WriteFile(pathToIndex, data, 0644)
-	if err != nil {
-		return fmt.Errorf("erro ao gravar o arquivo: %w", err)
-	}
-
-	return nil
 }

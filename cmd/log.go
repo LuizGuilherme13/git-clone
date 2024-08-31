@@ -3,47 +3,44 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"path/filepath"
 
+	"github.com/LuizGuilherme13/git-clone/common"
+	"github.com/LuizGuilherme13/git-clone/models"
 	"github.com/spf13/cobra"
 )
-
-func init() {
-	rootCmd.AddCommand(logCmd)
-}
 
 var logCmd = &cobra.Command{
 	Use: "log",
 	Run: logFunc,
 }
 
-var pathToCommits = filepath.Join(AbsDir, ".backup", "objects")
-
 func logFunc(cmd *cobra.Command, args []string) {
-	headCommit, err := os.ReadFile(filepath.Join(AbsDir, ".backup", "HEAD.txt"))
+	head, err := models.OpenHeadFile()
 	if err != nil {
-		log.Fatalln(err)
+		fmt.Println(err)
+		return
 	}
 
-	content, err := os.ReadFile(filepath.Join(pathToCommits, string(headCommit)))
+	content, err := os.ReadFile(filepath.Join(common.ObjPath, head.Hash))
 	if err != nil {
-		log.Fatalln(err)
+		fmt.Println(models.CheckError(err.Error()))
+		return
 	}
 
-	commit := Commit{}
+	commit := models.Commit{}
 	if err := json.Unmarshal(content, &commit); err != nil {
-		log.Fatalln(err)
+		fmt.Println(models.CheckError(err.Error()))
+		return
 	}
 
-	getParent(pathToCommits, commit)
+	displayCommit(commit)
 }
 
-func getParent(path string, commit Commit) {
-
-	fmt.Printf("%scommit %s\n", Yellow, commit.Hash)
-	fmt.Println(Reset)
+func displayCommit(commit models.Commit) {
+	fmt.Printf("%scommit %s\n", common.ColorYellow, commit.Hash)
+	fmt.Println(common.ColorReset)
 	fmt.Printf("   %s\n", commit.Message)
 
 	if commit.Parent == "" {
@@ -52,15 +49,21 @@ func getParent(path string, commit Commit) {
 	}
 	fmt.Println()
 
-	content, err := os.ReadFile(filepath.Join(path, commit.Parent))
+	getParent(commit)
+}
+
+func getParent(commit models.Commit) {
+	content, err := os.ReadFile(filepath.Join(common.ObjPath, commit.Parent))
 	if err != nil {
-		log.Fatalln(err)
+		println(models.CheckError(err.Error()))
+		return
 	}
 
-	parentCommit := Commit{}
-	if err := json.Unmarshal(content, &parentCommit); err != nil {
-		log.Fatalln(err)
+	parent := models.Commit{}
+	if err := json.Unmarshal(content, &parent); err != nil {
+		println(models.CheckError(err.Error()))
+		return
 	}
 
-	getParent(pathToCommits, parentCommit)
+	displayCommit(parent)
 }

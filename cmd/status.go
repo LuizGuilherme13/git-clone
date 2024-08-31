@@ -4,17 +4,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
-	"log"
 	"os"
 	"path/filepath"
 	"slices"
 
+	"github.com/LuizGuilherme13/git-clone/common"
+	"github.com/LuizGuilherme13/git-clone/models"
 	"github.com/spf13/cobra"
 )
-
-func init() {
-	rootCmd.AddCommand(statusCmd)
-}
 
 var statusCmd = &cobra.Command{
 	Use: "status",
@@ -24,14 +21,21 @@ var statusCmd = &cobra.Command{
 var files = []string{}
 
 func status(cmd *cobra.Command, args []string) {
-	err := filepath.Walk(AbsDir, walk)
+	err := filepath.Walk(common.RootPath, walk)
 	if err != nil {
 		fmt.Println(err)
+		return
 	}
 
-	index := Index{Path: filepath.Join(AbsDir, ".backup", "index.json")}
-	if err := index.Unmarshal(index.Path); err != nil {
-		log.Fatalln(err)
+	index, err := models.OpenIndexFile()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	if err := index.Read(); err != nil {
+		fmt.Println(err)
+		return
 	}
 
 	objects := []string{}
@@ -39,22 +43,23 @@ func status(cmd *cobra.Command, args []string) {
 	modified := []string{}
 	toBeCommited := []string{}
 
-	//* Buscando o último commit
-	headCommit, err := os.ReadFile(filepath.Join(AbsDir, ".backup", "HEAD.txt"))
+	head, err := models.OpenHeadFile()
 	if err != nil {
-		log.Fatalln(err)
+		fmt.Println(err)
+		return
 	}
 
-	content, err := os.ReadFile(filepath.Join(pathToCommits, string(headCommit)))
+	content, err := os.ReadFile(filepath.Join(common.ObjPath, head.Hash))
 	if err != nil {
-		log.Fatalln(err)
+		fmt.Println(models.CheckError(err.Error()))
+		return
 	}
 
-	lastCommit := Commit{}
+	lastCommit := models.Commit{}
 	if err := json.Unmarshal(content, &lastCommit); err != nil {
-		log.Fatalln(err)
+		fmt.Println(models.CheckError(err.Error()))
+		return
 	}
-	//*
 
 	for _, obj := range index.Objects {
 		objects = append(objects, obj.Path)
@@ -64,17 +69,18 @@ func status(cmd *cobra.Command, args []string) {
 		if contain := slices.Contains(objects, file); !contain {
 			untracked = append(untracked, file)
 		} else {
-			object := Object{Path: file}
-			if err := object.compress(); err != nil {
-				log.Fatalln(err)
+			blob, err := models.CreateBlob(file)
+			if err != nil {
+				fmt.Println(err)
+				return
 			}
 
-			isModified := slices.ContainsFunc(index.Objects, func(obj Object) bool {
-				if obj.Path != object.Path {
+			isModified := slices.ContainsFunc(index.Objects, func(obj models.Blob) bool {
+				if obj.Path != blob.Path {
 					return false
 				}
 
-				return obj.Id != object.Id
+				return obj.Hash != blob.Hash
 			})
 
 			if isModified {
@@ -84,15 +90,15 @@ func status(cmd *cobra.Command, args []string) {
 	}
 
 Main:
-	for _, obj := range index.Objects {
+	for _, indexedObj := range index.Objects {
 		neverCommited := true
 
-		for i := range lastCommit.Index {
-			if obj.Path == lastCommit.Index[i].Path {
+		for _, commitedObj := range lastCommit.Index.Objects {
+			if indexedObj.Path == commitedObj.Path {
 				neverCommited = false
 
-				if obj.Id != lastCommit.Index[i].Id {
-					toBeCommited = append(toBeCommited, obj.Path)
+				if indexedObj.Hash != commitedObj.Hash {
+					toBeCommited = append(toBeCommited, indexedObj.Path)
 				}
 
 				continue Main
@@ -100,46 +106,44 @@ Main:
 		}
 
 		if neverCommited {
-			toBeCommited = append(toBeCommited, obj.Path)
+			toBeCommited = append(toBeCommited, indexedObj.Path)
 		}
 	}
 
 	if len(toBeCommited) > 0 {
 		fmt.Println("Changes to be commited:")
 		for i := range toBeCommited {
-			fmt.Printf("\t%smodified:   %s\n", Green, toBeCommited[i])
+			fmt.Printf("\t%s%s\n", common.ColorGreen, toBeCommited[i])
 		}
-		fmt.Println(Reset)
+		fmt.Println(common.ColorReset)
 	}
 
 	if len(modified) > 0 {
 		fmt.Println("Changes not staged:")
 		for i := range modified {
-			fmt.Printf("\t%smodified:   %s\n", Yellow, modified[i])
+			fmt.Printf("\t%s%s\n", common.ColorYellow, modified[i])
 		}
-		fmt.Println(Reset)
+		fmt.Println(common.ColorReset)
 	}
 
 	if len(untracked) > 0 {
 		fmt.Println("Untracked files:")
 		for i := range untracked {
-			fmt.Printf("\t%s%s\n", Red, untracked[i])
+			fmt.Printf("\t%s%s\n", common.ColorRed, untracked[i])
 		}
-		fmt.Println(Reset)
+		fmt.Println(common.ColorReset)
 	}
 
 }
 
 func walk(path string, info fs.FileInfo, err error) error {
 	if err != nil {
-		fmt.Println(err)
-		return err
+		return models.CheckError(err.Error())
 	}
 
-	relPath, err := filepath.Rel(AbsDir, path)
+	relPath, err := filepath.Rel(common.RootPath, path)
 	if err != nil {
-		fmt.Println(err)
-		return err
+		return models.CheckError(err.Error())
 	}
 
 	if !info.IsDir() && relPath != "." && !(len(relPath) > 1 && relPath[0] == '.') {
