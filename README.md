@@ -40,8 +40,30 @@ Exibe o estado atual de cada arquivo, sendo:
 
 **Changes not staged** (O Arquivo mudou desde a última vez que ele foi adicionado);
 
+**Changes to be commited** (O Arquivo está em staged e pronto para ser commitado);
+
+### 3. Commitando
+
+```bash
+~./go/bin/git-clone commit "your_message_here"
+```
+
+Armazenará o estado atual do projeto em uma estrutura dentro de '.backup/objects'
+
+### 4. Log
+
+```bash
+~./go/bin/git-clone log
+```
+
+Exibe o histórico de commits
+
 ## Work in progress...
 
-- Adicionar o comando 'commit'
-- Listar os arquivos adicionados ainda não commitados
-- Adicionar o comando 'log'
+- rm: Remover um arquivo do Index e da pasta própria pasta.
+
+- restore: Desfaz um arquivo adicionado que ainda não foi commitado.
+
+- checkout: Você pode ir pra qualquer commit do projeto e ver o estado do projeto naquele momento.
+
+- Implementar branches.
